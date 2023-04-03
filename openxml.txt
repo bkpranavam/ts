@@ -1,95 +1,107 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
+using System.IO;
+using System.Linq;
 
-public static MemoryStream CreateExcelFile(IQueryable data)
+public byte[] ExportToExcel(IQueryable data)
 {
-    var stream = new MemoryStream();
-    var workbookPart = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook);
-    var workbook = new Workbook();
-    var sheet = new Sheet { SheetId = 1, Name = "Sheet1", Id = workbookPart.GetIdOfPart(workbookPart.AddNewPart<WorksheetPart>()) };
-    var worksheetPart = (WorksheetPart)workbookPart.GetPartById(sheet.Id);
-    var worksheet = new Worksheet();
-    var sheetData = new SheetData();
-    var properties = data.First().GetType().GetProperties();
+    byte[] result;
 
-    // Add header row
-    var headerRow = new Row();
-    foreach (var property in properties)
+    using (MemoryStream memoryStream = new MemoryStream())
     {
-        headerRow.AppendChild(CreateCell(property.Name));
-    }
-    sheetData.AppendChild(headerRow);
-
-    // Add data rows
-    foreach (var item in data)
-    {
-        var dataRow = new Row();
-        foreach (var property in properties)
+        using (SpreadsheetDocument spreadsheetDocument = SpreadsheetDocument.Create(memoryStream, SpreadsheetDocumentType.Workbook))
         {
-            dataRow.AppendChild(CreateCell(property.GetValue(item)?.ToString()));
+            WorkbookPart workbookPart = spreadsheetDocument.AddWorkbookPart();
+            workbookPart.Workbook = new Workbook();
+
+            WorksheetPart worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+            worksheetPart.Worksheet = new Worksheet(new SheetData());
+
+            Sheets sheets = spreadsheetDocument.WorkbookPart.Workbook.AppendChild<Sheets>(new Sheets());
+            Sheet sheet = new Sheet() { Id = spreadsheetDocument.WorkbookPart.GetIdOfPart(worksheetPart), SheetId = 1, Name = "Sheet1" };
+            sheets.Append(sheet);
+
+            SheetData sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+            Row headerRow = new Row();
+            int columnIndex = 1;
+
+            foreach (var property in data.ElementType.GetProperties())
+            {
+                headerRow.AppendChild(new Cell() { DataType = CellValues.String, CellValue = new CellValue(property.Name), CellReference = GetCellReference(columnIndex, 1) });
+                columnIndex++;
+            }
+
+            sheetData.AppendChild(headerRow);
+
+            foreach (var item in data)
+            {
+                Row dataRow = new Row();
+                columnIndex = 1;
+
+                foreach (var property in data.ElementType.GetProperties())
+                {
+                    dataRow.AppendChild(new Cell() { DataType = CellValues.String, CellValue = new CellValue(property.GetValue(item)?.ToString()), CellReference = GetCellReference(columnIndex, sheetData.ChildElements.Count + 1) });
+                    columnIndex++;
+                }
+
+                sheetData.AppendChild(dataRow);
+            }
         }
-        sheetData.AppendChild(dataRow);
+
+        result = memoryStream.ToArray();
     }
 
-    worksheet.AppendChild(sheetData);
-    worksheetPart.Worksheet = worksheet;
-    workbook.AppendChild(sheet);
-    workbookPart.Workbook = workbook;
-    workbookPart.Close();
-
-    stream.Seek(0, SeekOrigin.Begin);
-    return stream;
+    return result;
 }
 
-private static Cell CreateCell(string text)
+private string GetCellReference(int columnIndex, int rowIndex)
 {
-    var cell = new Cell { DataType = CellValues.String };
-    cell.AppendChild(new CellValue(text));
-    return cell;
+    string columnLetter = GetColumnLetter(columnIndex);
+
+    return columnLetter + rowIndex.ToString();
 }
 
-
-
-
-private void DownloadExcelFile()
+private string GetColumnLetter(int columnIndex)
 {
-    var data = GetData();
-    var excelFile = CreateExcelFile(data);
+    int dividend = columnIndex;
+    string columnLetter = String.Empty;
 
-    var provider = new FileExtensionContentTypeProvider();
-    if (!provider.TryGetContentType("sample.xlsx", out var contentType))
+    while (dividend > 0)
     {
-        contentType = "application/octet-stream";
+        int modulo = (dividend - 1) % 26;
+        columnLetter = Convert.ToChar(65 + modulo).ToString() + columnLetter;
+        dividend = (int)((dividend - modulo) / 26);
     }
 
-    var fileName = "sample.xlsx";
-    var contentDisposition = "attachment; filename=" + fileName;
-    HttpContext.Response.ContentType = contentType;
-    HttpContext.Response.Headers.Add("Content-Disposition", contentDisposition);
-    HttpContext.Response.Body.Write(excelFile.ToArray(), 0, (int)excelFile.Length);
-}
-public MemoryStream CreateExcelFile(IQueryable data, HttpContext httpContext)
-{
-    var stream = new MemoryStream();
-    var workbookPart = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook);
-    //... rest of the code
+    return columnLetter;
 }
 
-public void DownloadExcelFile(HttpContext httpContext)
-{
-    var data = GetData();
-    var excelFile = CreateExcelFile(data, httpContext);
 
-    var provider = new FileExtensionContentTypeProvider();
-    if (!provider.TryGetContentType("sample.xlsx", out var contentType))
+
+@page "/"
+
+<button @onclick="ExportData">Export Data</button>
+
+@code {
+    private IQueryable data = GetData();
+
+    private void ExportData()
     {
-        contentType = "application/octet-stream";
+        byte[] exportedData = ExportToExcel(data);
+
+        string fileName = "data.xlsx";
+
+        HttpResponse response = NavigationManager.NavigateTo("/_blazor/download/" + fileName, true);
+
+        response.ContentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+        response.Headers.Add
+response.Headers.Add("Content-Disposition", "attachment; filename=" + fileName);
+        response.Body.WriteAsync(exportedData);
     }
 
-    var fileName = "sample.xlsx";
-    var contentDisposition = "attachment; filename=" + fileName;
-    httpContext.Response.ContentType = contentType;
-    httpContext.Response.Headers.Add("Content-Disposition", contentDisposition);
-    httpContext.Response.Body.Write(excelFile.ToArray(), 0, (int)excelFile.Length);
+    private static IQueryable GetData()
+    {
+        // Code to get data from the database or another source.
+    }
 }
