@@ -1,78 +1,71 @@
 using DocumentFormat.OpenXml;
 using DocumentFormat.OpenXml.Packaging;
 using DocumentFormat.OpenXml.Spreadsheet;
-using System.IO;
 
-public byte[] ExportToExcel(DataTable data)
+public static MemoryStream CreateExcelFile(IQueryable data)
 {
-    byte[] result;
+    var stream = new MemoryStream();
+    var workbookPart = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook);
+    var workbook = new Workbook();
+    var sheet = new Sheet { SheetId = 1, Name = "Sheet1", Id = workbookPart.GetIdOfPart(workbookPart.AddNewPart<WorksheetPart>()) };
+    var worksheetPart = (WorksheetPart)workbookPart.GetPartById(sheet.Id);
+    var worksheet = new Worksheet();
+    var sheetData = new SheetData();
+    var properties = data.First().GetType().GetProperties();
 
-    using (MemoryStream mem = new MemoryStream())
+    // Add header row
+    var headerRow = new Row();
+    foreach (var property in properties)
     {
-        using (SpreadsheetDocument document = SpreadsheetDocument.Create(mem, SpreadsheetDocumentType.Workbook))
+        headerRow.AppendChild(CreateCell(property.Name));
+    }
+    sheetData.AppendChild(headerRow);
+
+    // Add data rows
+    foreach (var item in data)
+    {
+        var dataRow = new Row();
+        foreach (var property in properties)
         {
-            WorkbookPart workbookPart = document.AddWorkbookPart();
-            workbookPart.Workbook = new Workbook();
-
-            WorksheetPart worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
-            worksheetPart.Worksheet = new Worksheet(new SheetData());
-
-            Sheets sheets = workbookPart.Workbook.AppendChild(new Sheets());
-            Sheet sheet = new Sheet() { Id = workbookPart.GetIdOfPart(worksheetPart), SheetId = 1, Name = "Sheet1" };
-            sheets.Append(sheet);
-
-            SheetData sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
-
-            // Add header row
-            Row headerRow = new Row();
-            foreach (DataColumn column in data.Columns)
-            {
-                headerRow.AppendChild(new Cell(new InlineString(new Text(column.ColumnName))));
-            }
-            sheetData.AppendChild(headerRow);
-
-            // Add data rows
-            foreach (DataRow row in data.Rows)
-            {
-                Row dataRow = new Row();
-                foreach (DataColumn column in data.Columns)
-                {
-                    dataRow.AppendChild(new Cell(new InlineString(new Text(row[column].ToString()))));
-                }
-                sheetData.AppendChild(dataRow);
-            }
+            dataRow.AppendChild(CreateCell(property.GetValue(item)?.ToString()));
         }
-
-        result = mem.ToArray();
+        sheetData.AppendChild(dataRow);
     }
 
-    return result;
+    worksheet.AppendChild(sheetData);
+    worksheetPart.Worksheet = worksheet;
+    workbook.AppendChild(sheet);
+    workbookPart.Workbook = workbook;
+    workbookPart.Close();
+
+    stream.Seek(0, SeekOrigin.Begin);
+    return stream;
+}
+
+private static Cell CreateCell(string text)
+{
+    var cell = new Cell { DataType = CellValues.String };
+    cell.AppendChild(new CellValue(text));
+    return cell;
 }
 
 
 
 
+private void DownloadExcelFile()
+{
+    var data = GetData();
+    var excelFile = CreateExcelFile(data);
 
-<button @onclick="ExportData">Export to Excel</button>
-
-@code {
-    private void ExportData()
+    var provider = new FileExtensionContentTypeProvider();
+    if (!provider.TryGetContentType("sample.xlsx", out var contentType))
     {
-        DataTable data = GetDataTable(); // Replace this with your own method to get the data to export
-        byte[] excelFile = ExportToExcel(data);
+        contentType = "application/octet-stream";
+    }
 
-        string fileName = "Data.xlsx";
-        string contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
-
-        // Download the file to the user's local machine
-        var memoryStream = new MemoryStream(excelFile);
-        var content = new StreamContent(memoryStream);
-        var headers = new HttpHeaders
-        {
-            ContentDisposition = new ContentDispositionHeaderValue("attachment") { FileName = fileName },
-            ContentType = new MediaTypeHeaderValue(contentType)
-        };
-        var response = new HttpResponseMessage { Content = content };
-        response.Headers.Add("X-Content-Type-Options", "nosniff");
-        response.Content.Headers.ContentDisposition = headers.ContentDisposition;
-        response
+    var fileName = "sample.xlsx";
+    var contentDisposition = "attachment; filename=" + fileName;
+    HttpContext.Response.ContentType = contentType;
+    HttpContext.Response.Headers.Add("Content-Disposition", contentDisposition);
+    HttpContext.Response.Body.Write(excelFile.ToArray(), 0, (int)excelFile.Length);
+}
