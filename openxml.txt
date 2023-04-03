@@ -105,3 +105,27 @@ response.Headers.Add("Content-Disposition", "attachment; filename=" + fileName);
         // Code to get data from the database or another source.
     }
 }
+
+
+private async Task ExportData()
+{
+    byte[] exportedData = ExportToExcel(data);
+
+    string fileName = "data.xlsx";
+
+    var response = new HttpResponseMessage(HttpStatusCode.OK);
+    response.Content = new ByteArrayContent(exportedData);
+    response.Content.Headers.ContentDisposition = new ContentDispositionHeaderValue("attachment");
+    response.Content.Headers.ContentDisposition.FileName = fileName;
+    response.Content.Headers.ContentType = new MediaTypeHeaderValue("application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+
+    await jsRuntime.InvokeVoidAsync("BlazorDownloadFile", fileName, Convert.ToBase64String(exportedData));
+}
+window.BlazorDownloadFile = function (fileName, data) {
+    var link = document.createElement('a');
+    link.download = fileName;
+    link.href = "data:application/octet-stream;base64," + data;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+}
