@@ -69,3 +69,27 @@ private void DownloadExcelFile()
     HttpContext.Response.Headers.Add("Content-Disposition", contentDisposition);
     HttpContext.Response.Body.Write(excelFile.ToArray(), 0, (int)excelFile.Length);
 }
+public MemoryStream CreateExcelFile(IQueryable data, HttpContext httpContext)
+{
+    var stream = new MemoryStream();
+    var workbookPart = SpreadsheetDocument.Create(stream, SpreadsheetDocumentType.Workbook);
+    //... rest of the code
+}
+
+public void DownloadExcelFile(HttpContext httpContext)
+{
+    var data = GetData();
+    var excelFile = CreateExcelFile(data, httpContext);
+
+    var provider = new FileExtensionContentTypeProvider();
+    if (!provider.TryGetContentType("sample.xlsx", out var contentType))
+    {
+        contentType = "application/octet-stream";
+    }
+
+    var fileName = "sample.xlsx";
+    var contentDisposition = "attachment; filename=" + fileName;
+    httpContext.Response.ContentType = contentType;
+    httpContext.Response.Headers.Add("Content-Disposition", contentDisposition);
+    httpContext.Response.Body.Write(excelFile.ToArray(), 0, (int)excelFile.Length);
+}
