@@ -1,0 +1,78 @@
+using DocumentFormat.OpenXml;
+using DocumentFormat.OpenXml.Packaging;
+using DocumentFormat.OpenXml.Spreadsheet;
+using System.IO;
+
+public byte[] ExportToExcel(DataTable data)
+{
+    byte[] result;
+
+    using (MemoryStream mem = new MemoryStream())
+    {
+        using (SpreadsheetDocument document = SpreadsheetDocument.Create(mem, SpreadsheetDocumentType.Workbook))
+        {
+            WorkbookPart workbookPart = document.AddWorkbookPart();
+            workbookPart.Workbook = new Workbook();
+
+            WorksheetPart worksheetPart = workbookPart.AddNewPart<WorksheetPart>();
+            worksheetPart.Worksheet = new Worksheet(new SheetData());
+
+            Sheets sheets = workbookPart.Workbook.AppendChild(new Sheets());
+            Sheet sheet = new Sheet() { Id = workbookPart.GetIdOfPart(worksheetPart), SheetId = 1, Name = "Sheet1" };
+            sheets.Append(sheet);
+
+            SheetData sheetData = worksheetPart.Worksheet.GetFirstChild<SheetData>();
+
+            // Add header row
+            Row headerRow = new Row();
+            foreach (DataColumn column in data.Columns)
+            {
+                headerRow.AppendChild(new Cell(new InlineString(new Text(column.ColumnName))));
+            }
+            sheetData.AppendChild(headerRow);
+
+            // Add data rows
+            foreach (DataRow row in data.Rows)
+            {
+                Row dataRow = new Row();
+                foreach (DataColumn column in data.Columns)
+                {
+                    dataRow.AppendChild(new Cell(new InlineString(new Text(row[column].ToString()))));
+                }
+                sheetData.AppendChild(dataRow);
+            }
+        }
+
+        result = mem.ToArray();
+    }
+
+    return result;
+}
+
+
+
+
+
+<button @onclick="ExportData">Export to Excel</button>
+
+@code {
+    private void ExportData()
+    {
+        DataTable data = GetDataTable(); // Replace this with your own method to get the data to export
+        byte[] excelFile = ExportToExcel(data);
+
+        string fileName = "Data.xlsx";
+        string contentType = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+        // Download the file to the user's local machine
+        var memoryStream = new MemoryStream(excelFile);
+        var content = new StreamContent(memoryStream);
+        var headers = new HttpHeaders
+        {
+            ContentDisposition = new ContentDispositionHeaderValue("attachment") { FileName = fileName },
+            ContentType = new MediaTypeHeaderValue(contentType)
+        };
+        var response = new HttpResponseMessage { Content = content };
+        response.Headers.Add("X-Content-Type-Options", "nosniff");
+        response.Content.Headers.ContentDisposition = headers.ContentDisposition;
+        response
